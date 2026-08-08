@@ -134,7 +134,7 @@ with tab_dash:
 
         profit_str = f"{'+' if profit >= 0 else '-'}${abs(profit):,.0f}"  # 부호로 시작(색 적용)
 
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         col1.metric("평가금액", f"${pnl['평가액']:,.0f}",
                     f"{day_ret:+.2f}%" if day_ret is not None else None,
                     help="옆 화살표·색 = 오늘의 수익률(포트폴리오 전일 대비 등락). "
@@ -144,10 +144,6 @@ with tab_dash:
                     profit_str,
                     help="큰 숫자 = 원금 대비 수익률(누적손익÷투입원가), "
                          "밑 = 수익금(손익 금액).")
-        col3.metric("역대 누적 실현손익", f"${pnl['실현손익']:,.2f}",
-                    f"배당 ${pnl['배당']:+,.2f}" if pnl["배당"] else None,
-                    delta_color="off",
-                    help="지금까지 매도로 확정된 손익의 누계. 배당은 별도로 아래 표시.")
 
         ref = pnl["기준일"]
         won = f"₩{pnl['평가액'] * fx:,.0f} · " if fx else ""
@@ -268,6 +264,13 @@ with tab_realized:
         "(현재 평단으로 과거 매도를 소급하지 않습니다). 미실현 손익은 여기 넣지 않고 "
         "대시보드 보유 표에서 따로 봅니다. 금액은 종목 통화 기준입니다."
     )
+
+    # 맨 위: 역대 누적 실현손익 (USD 합산, 배당 별도)
+    _pnl = engine.cumulative_pnl()
+    st.metric("역대 누적 실현손익", f"${_pnl['실현손익']:,.2f}",
+              f"배당 ${_pnl['배당']:+,.2f}" if _pnl["배당"] else None,
+              delta_color="off",
+              help="지금까지 매도로 확정된 손익의 누계(USD 합산). 배당은 별도 표시.")
 
     log = engine.realized_log()
     roll = engine.realized_rollup()
