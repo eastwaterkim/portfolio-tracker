@@ -102,8 +102,8 @@ check_password()
 
 st.title("📊 포트폴리오 트래커")
 
-tab_dash, tab_analysis, tab_realized, tab_calendar, tab_input, tab_manage = st.tabs(
-    ["대시보드", "분석", "실현손익", "날짜 조회", "거래 입력", "관리"]
+tab_dash, tab_realized, tab_calendar, tab_input, tab_manage = st.tabs(
+    ["대시보드", "실현손익", "날짜 조회", "거래 입력", "관리"]
 )
 
 
@@ -142,8 +142,8 @@ with tab_dash:
         col2.metric("수익률 (원금 대비)",
                     f"{simple:+.2f}%" if simple is not None else "—",
                     profit_str,
-                    help="큰 숫자 = 원금 대비 수익률(누적손익÷투입원가), 밑 = 수익금(손익 금액). "
-                         "시간가중 수익률(TWRR)은 [분석] 탭.")
+                    help="큰 숫자 = 원금 대비 수익률(누적손익÷투입원가), "
+                         "밑 = 수익금(손익 금액).")
         col3.metric("역대 누적 실현손익", f"${pnl['실현손익']:,.2f}",
                     f"배당 ${pnl['배당']:+,.2f}" if pnl["배당"] else None,
                     delta_color="off",
@@ -212,15 +212,9 @@ with tab_dash:
             )
             st.plotly_chart(fig, width="stretch")
 
+        st.divider()
 
-# ======================================================================
-# 탭 2: 분석 (Phase 2)
-# ======================================================================
-with tab_analysis:
-    if db.get_transactions().empty or db.get_prices().empty:
-        st.info("거래와 가격 데이터가 있어야 분석이 표시됩니다.")
-    else:
-        # ---- 테마 노출 ----
+        # ---- 테마 비중 ----
         st.subheader("테마 비중")
         st.caption(
             "한 종목이 여러 테마에 속하면 테마 수로 나눠 균등 배분합니다 "
@@ -263,127 +257,9 @@ with tab_analysis:
                 st.metric("묶음 노출", f"{pct:.1f}%", f"${val:,.0f}", delta_color="off")
                 st.caption("포함 종목: " + ", ".join(names))
 
-        st.divider()
-
-        # ---- TWRR (시간가중 수익률) ----
-        st.subheader("TWRR — 시간가중 수익률")
-        st.caption(
-            "현금흐름(입출금) 날짜마다 구간을 쪼개 각 구간 수익률을 기하 연결합니다. "
-            "납입 타이밍·금액 효과가 상쇄되어 '포트폴리오 자체 성과'만 남으므로, "
-            "벤치마크(매수 후 보유)와 같은 잣대로 직접 비교됩니다."
-        )
-        tw_period = st.selectbox("기간", analytics.period_options(), key="twrr_period")
-        tw_start, tw_end = analytics.period_window(tw_period)
-        tw = analytics.twrr(tw_start, tw_end)
-
-        if not tw.get("ok"):
-            st.info(tw.get("msg", "계산할 수 없습니다."))
-        else:
-            # 연율화는 기간이 어느 정도 돼야 의미 있다 (4일치를 1년으로 늘리면 과장됨)
-            enough = tw["days"] >= 30
-            cagr_txt = (f"{tw['cagr'] * 100:+.2f}%"
-                        if (enough and tw["cagr"] is not None) else "—")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("누적 총수익률", f"{tw['cumulative'] * 100:+.2f}%")
-            c2.metric("연평균 (CAGR)", cagr_txt,
-                      help="누적수익률을 1년 복리로 환산. 30일 미만 구간은 과장이 커서 생략합니다.")
-            c3.metric("측정 구간",
-                      f"{tw['start'].date()} → {tw['end'].date()}",
-                      f"{tw['days']}일 · 현금흐름 {tw['n_flows']}회", delta_color="off")
-            if not enough:
-                st.caption("※ 기간이 30일 미만이라 연평균(CAGR)은 생략했습니다 (누적 수익률만 참고).")
-            with st.expander("구간별 수익률 보기 (현금흐름 경계로 분할)"):
-                seg_df = pd.DataFrame(
-                    [{"구간 시작": s.date(), "구간 끝": e.date(),
-                      "구간 수익률(%)": r * 100} for s, e, r in tw["segments"]]
-                )
-                st.dataframe(seg_df.style.format({"구간 수익률(%)": "{:+.2f}"}),
-                             width="stretch", hide_index=True)
-
-        st.divider()
-
-        # ---- 드로다운 / MDD ----
-        st.subheader("드로다운 (고점 대비 낙폭)")
-        st.caption(
-            "총자산이 신고점을 찍을 때마다 기준선이 갱신되고, 거기서 떨어진 폭을 "
-            "수면 아래로 표시합니다. 최대낙폭(MDD)은 '가장 깊었던 골짜기'입니다."
-        )
-        dd = analytics.drawdown()
-        if dd is None:
-            st.info("총자산 이력이 이틀 이상 쌓이면 표시됩니다.")
-        else:
-            m1, m2 = st.columns([1, 2])
-            m1.metric("최대낙폭 (MDD)", f"{dd['mdd']:.1f}%")
-            recov = dd["recovery"].date() if dd["recovery"] is not None else "미회복"
-            m2.metric("낙폭 구간",
-                      f"{dd['peak_date'].date()} → {dd['trough_date'].date()}",
-                      f"회복: {recov}", delta_color="off")
-
-            s = dd["series"]
-            fig = go.Figure(
-                go.Scatter(
-                    x=s.index, y=s.values, mode="lines", fill="tozeroy",
-                    line=dict(color="#d03b3b", width=1.5),
-                    fillcolor="rgba(208,59,59,0.15)",
-                    hovertemplate="%{x|%Y-%m-%d}<br>%{y:.1f}%<extra></extra>",
-                )
-            )
-            fig.update_layout(
-                margin=dict(t=10, b=10, l=10, r=10), height=300,
-                xaxis=dict(showgrid=False, color=INK_MUTED),
-                yaxis=dict(gridcolor=GRID, color=INK_MUTED, ticksuffix="%",
-                           rangemode="tozero"),
-                plot_bgcolor="rgba(0,0,0,0)", hovermode="x unified",
-            )
-            st.plotly_chart(fig, width="stretch")
-
-        st.divider()
-
-        # ---- 벤치마크 비교 (TWRR 기준) ----
-        st.subheader("벤치마크 비교 (TWRR 기준)")
-        st.caption(
-            "내 포트폴리오는 TWRR(납입 효과 제거), 벤치마크는 매수 후 보유 수익률입니다. "
-            "같은 잣대라 순수 성과 비교가 됩니다. 위에서 고른 기간을 그대로 사용합니다."
-        )
-        if st.button("📈 벤치마크(SPY·QQQ·BTC) 가격 받아오기"):
-            with st.spinner("받아오는 중..."):
-                prices.update_benchmarks(first_trade_date())
-            st.toast("벤치마크 가격 받아오기 완료", icon="✅"); st.rerun()
-
-        picks = st.multiselect("비교할 지수", ["SPY", "QQQ", "BTC"],
-                               default=["SPY", "QQQ"])
-        ret_df = analytics.benchmark_returns(picks, tw_start, tw_end)
-        if ret_df is not None and not ret_df.empty:
-            st.dataframe(ret_df.style.format({"총수익률(%)": "{:+.2f}"}),
-                         width="stretch", hide_index=True)
-
-        series = analytics.benchmark_twrr_index(picks, tw_start, tw_end)
-        if not series or len(next(iter(series.values()))) < 2:
-            st.info("총자산 이력이 이틀 이상 쌓이면 곡선이 그려집니다. "
-                    "(벤치마크 가격도 먼저 받아오세요.)")
-        else:
-            colors = {"내 포트폴리오 (TWRR)": PALETTE[0], "SPY": PALETTE[2],
-                      "QQQ": PALETTE[1], "BTC": PALETTE[5]}
-            fig = go.Figure()
-            for name, s in series.items():
-                fig.add_trace(go.Scatter(
-                    x=s.index, y=s.values, mode="lines", name=name,
-                    line=dict(color=colors.get(name, PALETTE[7]),
-                              width=3 if name.startswith("내 포트폴리오") else 1.8),
-                    hovertemplate=name + " %{y:.1f}<extra></extra>",
-                ))
-            fig.update_layout(
-                margin=dict(t=10, b=10, l=10, r=10), height=380,
-                xaxis=dict(showgrid=False, color=INK_MUTED),
-                yaxis=dict(gridcolor=GRID, color=INK_MUTED, title="지수 (시작=100)"),
-                plot_bgcolor="rgba(0,0,0,0)", hovermode="x unified",
-                legend=dict(orientation="h", y=1.1),
-            )
-            st.plotly_chart(fig, width="stretch")
-
 
 # ======================================================================
-# 탭 3: 실현손익 (매도 건별 로그 + 종목별 롤업)
+# 탭 2: 실현손익 (매도 건별 로그 + 종목별 롤업)
 # ======================================================================
 with tab_realized:
     st.subheader("실현손익")
@@ -428,7 +304,7 @@ with tab_realized:
 
 
 # ======================================================================
-# 탭 4: 날짜 조회 (날짜 입력 → 그날 재구성)
+# 탭 3: 날짜 조회 (날짜 입력 → 그날 재구성)
 # ======================================================================
 with tab_calendar:
     st.subheader("날짜별 조회")
@@ -510,7 +386,7 @@ with tab_calendar:
 
 
 # ======================================================================
-# 탭 5: 거래 입력 (매매·배당 / 입출금 / 수정·삭제)
+# 탭 4: 거래 입력 (매매·배당 / 입출금 / 수정·삭제)
 # ======================================================================
 with tab_input:
     assets = db.get_assets()
@@ -708,7 +584,7 @@ with tab_input:
 
 
 # ======================================================================
-# 탭 6: 관리 (종목 등록 / 가격 / CSV 백업)
+# 탭 5: 관리 (종목 등록 / 가격 / CSV 백업)
 # ======================================================================
 with tab_manage:
     st.subheader("종목 등록")
