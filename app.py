@@ -238,7 +238,32 @@ with tab_dash:
                 yaxis=dict(color=INK_MUTED),
                 plot_bgcolor="rgba(0,0,0,0)",
             )
-            st.plotly_chart(fig, width="stretch")
+            chart_col, pie_col = st.columns([3, 2])
+            chart_col.plotly_chart(fig, width="stretch")
+
+            # 막대그래프의 수치와 같은 기준(다중 테마는 균등 배분)으로 원그래프를 그린다.
+            # 테마가 팔레트보다 많아져도 색이 끊기지 않도록 반복한다.
+            theme_colors = [PALETTE[i % len(PALETTE)] for i in range(len(theme_df))]
+            theme_pie = go.Figure(
+                go.Pie(
+                    labels=theme_df["테마"], values=theme_df["평가액($)"],
+                    hole=0.45, sort=False,
+                    marker=dict(colors=theme_colors,
+                                line=dict(color="#ffffff", width=2)),
+                    textposition="inside", texttemplate="%{percent:.0%}",
+                    insidetextorientation="horizontal",
+                    hovertemplate="%{label}<br>$%{value:,.0f} (%{percent})<extra></extra>",
+                )
+            )
+            theme_pie.update_layout(
+                margin=dict(t=10, b=10, l=10, r=10),
+                height=max(300, min(430, 46 * len(theme_df))),
+                uniformtext_minsize=11, uniformtext_mode="hide",
+                showlegend=True,
+                legend=dict(orientation="h", x=0.5, xanchor="center",
+                            y=-0.08, yanchor="top", font=dict(size=12)),
+            )
+            pie_col.plotly_chart(theme_pie, width="stretch")
             st.caption(f"합계: {theme_df['비중(%)'].sum():.0f}%")
 
             # ---- 묶음(숨은 집중도) ----
